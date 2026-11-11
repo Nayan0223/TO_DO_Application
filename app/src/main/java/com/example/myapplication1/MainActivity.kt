@@ -1,6 +1,11 @@
 package com.example.myapplication1
 
 import android.os.Bundle
+import androidx.core.content.edit
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.LaunchedEffect
+import org.json.JSONArray
+import org.json.JSONObject
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -58,6 +63,43 @@ private enum class TodoFilter(val label: String) {
     Completed("Done")
 }
 
+private const val PREFERENCES_NAME = "todo_list"
+private const val TASKS_KEY = "tasks"
+
+private fun loadTodos(context: android.content.Context): List<TodoItem> {
+    val savedTasks = context.getSharedPreferences(PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        .getString(TASKS_KEY, null) ?: return emptyList()
+
+    return try {
+        val jsonArray = JSONArray(savedTasks)
+        List(jsonArray.length()) { index ->
+            val task = jsonArray.getJSONObject(index)
+            TodoItem(
+                id = task.optInt("id", index + 1),
+                title = task.optString("title"),
+                isDone = task.optBoolean("isDone", false)
+            )
+        }.filter { it.title.isNotBlank() }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveTodos(context: android.content.Context, todos: List<TodoItem>) {
+    val jsonArray = JSONArray()
+    todos.forEach { todo ->
+        jsonArray.put(
+            JSONObject()
+                .put("id", todo.id)
+                .put("title", todo.title)
+                .put("isDone", todo.isDone)
+        )
+    }
+    context.getSharedPreferences(PREFERENCES_NAME, android.content.Context.MODE_PRIVATE).edit {
+        putString(TASKS_KEY, jsonArray.toString())
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,7 +114,14 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun TodoListScreen() {
-    val todos = remember { mutableStateListOf<TodoItem>() }
+    val context = LocalContext.current.applicationContext
+    val todos = remember(context) {
+        mutableStateListOf<TodoItem>().apply { addAll(loadTodos(context)) }
+    }
+    val todoSnapshot = todos.toList()
+    LaunchedEffect(todoSnapshot) {
+        saveTodos(context, todoSnapshot)
+    }
     var taskText by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf(TodoFilter.All) }
 
@@ -140,7 +189,7 @@ private fun TodoListScreen() {
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "$completedCount/\${todos.size}",
+                            text = "$completedCount/${todos.size}",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontWeight = FontWeight.Bold
