@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.core.content.edit
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.activity.ComponentActivity
@@ -66,9 +68,10 @@ private enum class TodoFilter(val label: String) {
 private const val PREFERENCES_NAME = "todo_list"
 private const val TASKS_KEY = "tasks"
 
-private fun loadTodos(context: android.content.Context): List<TodoItem> {
+private fun loadTodos(context: android.content.Context, accountEmail: String): List<TodoItem> {
+    val accountTasksKey = TASKS_KEY + "_" + accountEmail.lowercase()
     val savedTasks = context.getSharedPreferences(PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
-        .getString(TASKS_KEY, null) ?: return emptyList()
+        .getString(accountTasksKey, null) ?: return emptyList()
 
     return try {
         val jsonArray = JSONArray(savedTasks)
@@ -85,7 +88,8 @@ private fun loadTodos(context: android.content.Context): List<TodoItem> {
     }
 }
 
-private fun saveTodos(context: android.content.Context, todos: List<TodoItem>) {
+private fun saveTodos(context: android.content.Context, accountEmail: String, todos: List<TodoItem>) {
+    val accountTasksKey = TASKS_KEY + "_" + accountEmail.lowercase()
     val jsonArray = JSONArray()
     todos.forEach { todo ->
         jsonArray.put(
@@ -96,7 +100,7 @@ private fun saveTodos(context: android.content.Context, todos: List<TodoItem>) {
         )
     }
     context.getSharedPreferences(PREFERENCES_NAME, android.content.Context.MODE_PRIVATE).edit {
-        putString(TASKS_KEY, jsonArray.toString())
+        putString(accountTasksKey, jsonArray.toString())
     }
 }
 
@@ -106,21 +110,42 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplication1Theme {
-                TodoListScreen()
+                TodoApp()
             }
         }
     }
 }
 
 @Composable
-private fun TodoListScreen() {
+private fun TodoApp() {
+    var session by remember { mutableStateOf<AuthSession?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val currentSession = session
+    if (currentSession == null) {
+        AuthScreen(onAuthenticated = { session = it })
+    } else {
+        TodoListScreen(
+            userEmail = currentSession.email,
+            onLogout = {
+                session = null
+                coroutineScope.launch {
+                    runCatching { AuthClient.logout(currentSession.token) }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun TodoListScreen(userEmail: String, onLogout: () -> Unit) {
     val context = LocalContext.current.applicationContext
-    val todos = remember(context) {
-        mutableStateListOf<TodoItem>().apply { addAll(loadTodos(context)) }
+    val todos = remember(context, userEmail) {
+        mutableStateListOf<TodoItem>().apply { addAll(loadTodos(context, userEmail)) }
     }
     val todoSnapshot = todos.toList()
-    LaunchedEffect(todoSnapshot) {
-        saveTodos(context, todoSnapshot)
+    LaunchedEffect(todoSnapshot, userEmail) {
+        saveTodos(context, userEmail, todoSnapshot)
     }
     var taskText by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf(TodoFilter.All) }
@@ -160,12 +185,21 @@ private fun TodoListScreen() {
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    Text(
-                        text = "YOUR DAY, YOUR PACE",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "YOUR DAY, YOUR PACE",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        TextButton(onClick = onLogout) {
+                            Text("Log out", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = "Make today\ncount.",
@@ -369,6 +403,6 @@ private fun TodoRow(
 @Composable
 private fun TodoListPreview() {
     MyApplication1Theme {
-        TodoListScreen()
+        TodoListScreen(userEmail = "preview@example.com", onLogout = {})
     }
 }

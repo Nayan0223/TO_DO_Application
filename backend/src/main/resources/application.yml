@@ -1,0 +1,18 @@
+server:
+  address: 0.0.0.0
+  port: ${PORT:8080}
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/todo_app}
+    username: ${DB_USERNAME:todo_dev}
+    password: ${DB_PASSWORD:todo_dev_password}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-hours: 12
